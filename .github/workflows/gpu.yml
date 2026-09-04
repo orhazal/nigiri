@@ -84,3 +84,67 @@ jobs:
       - name: Save build
         if: always()
         run: mv build ~/nigiri-build
+
+  # AMD counterpart of gpu-benchmark (NIGIRI_HIP, see CMakePresets "hip").
+  # Needs a self-hosted runner with ROCm installed and the `rocm` label. A job
+  # whose runner label does not exist queues forever, so the repository
+  # variable HAS_ROCM_RUNNER gates it until such a runner is registered.
+  gpu-benchmark-hip:
+    if: vars.HAS_ROCM_RUNNER == 'true'
+    runs-on: [ self-hosted, linux, x64, rocm ]
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      CLICOLOR_FORCE: 1
+      LD_LIBRARY_PATH: /opt/rocm/lib
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get deps
+        run: mkdir -p ~/deps && mv ~/deps .
+
+      - name: Get build
+        run: mkdir -p ~/nigiri-build-hip && mv ~/nigiri-build-hip build
+
+      - name: Configure
+        # counterpart of CMAKE_CUDA_ARCHITECTURES=native: HIP has no "native",
+        # so ask the ROCm runtime which GPU(s) this runner has
+        run: |
+          HIP_ARCHS="$(rocm_agent_enumerator | grep -v gfx000 | sort -u | paste -sd';')"
+          test -n "$HIP_ARCHS"
+          cmake --preset hip -DCMAKE_HIP_ARCHITECTURES="$HIP_ARCHS"
+
+      - name: Build
+        run: cmake --build --preset hip --target nigiri-test nigiri-benchmark nigiri-import
+
+      - name: nigiri-test
+        run: ./build/hip/nigiri-test
+
+      - name: Save deps
+        if: always()
+        run: mv deps ~
+
+      - name: Import Germany
+        run: |
+          ./build/hip/nigiri-import -r --ignore -i "$HOME/ci-data/ger" \
+            -o tt.bin \
+            -s 2026-07-01 -n 14 \
+            --link_stop_distance 100 \
+            --merge_dupes_intra_source true \
+            --merge_dupes_inter_source true \
+            --adjust_footpaths true \
+            --max_footpath_length 12
+
+      # the vias=1/2 CPU-only rows of gpu-benchmark do not exercise the GPU
+      # back end and are already covered there
+      - name: Validate Germany (vias=0, CPU + GPU)
+        run: |
+          ./build/hip/nigiri-benchmark -p tt.bin \
+            --engines cpu gpu \
+            --algo range pong \
+            --modes s2s c2c \
+            --dirs fwd bwd \
+            -n 25
+
+      - name: Save build
+        if: always()
+        run: mv build ~/nigiri-build-hip
