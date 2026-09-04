@@ -180,6 +180,11 @@ if (NIGIRI_CUDA OR NIGIRI_HIP)
     find_package(CUDAToolkit REQUIRED)
   else()
     enable_language(HIP)
+    # hip-config.cmake (and rocprim, which rocthrust-config pulls in as a
+    # dependency) live under the ROCm root CMake detected for the HIP
+    # compiler. That root is not on CMAKE_PREFIX_PATH by default, so a plain
+    # ROCm install fails here with "Could not find ... hipConfig.cmake".
+    list(APPEND CMAKE_PREFIX_PATH "${CMAKE_HIP_COMPILER_ROCM_ROOT}")
     find_package(hip REQUIRED)
     find_package(rocthrust REQUIRED)
     # hipcc treats .cu as HIP already, but CMake dispatches on the language
